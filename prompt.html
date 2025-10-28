@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forge:RePrompt</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #fceb01d3;
+        }
+        .container-card {
+            box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 1), 0 4px 6px -2px rgba(2, 2, 2, 1);
+            transition: transform 0.3s ease;
+        }
+        .container-card:hover {
+            transform: translateY(-2px);
+        }
+        .spinner {
+            border-top-color: #3498db;
+            border-left-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen flex items-center justify-center">
+
+    <div id="app" class="w-full max-w-4xl">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold text-black-900 tracking-tight">Welcome To Forge: Your RePrompt Reverse Engineer</h1>
+            <p class="mt-2 text-lg text-black-800">Give us the outcome, and we'll give you the prompt.</p>
+        </header>
+
+        <div class="container-card bg-white p-6 md:p-8 rounded-xl">
+            <!-- Input Controls -->
+            <div class="space-y-6">
+                <!-- Selection Dropdown -->
+                <div>
+                    <label for="inputType" class="block text-sm font-medium text-gray-700 mb-2">1. Select Input Type:</label>
+                    <select id="inputType" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                        <option value="image">Image Upload (Get Image Prompt)</option>
+                        <option value="text">Text Description (Get Website/Video/Design Prompt)</option>
+                    </select>
+                </div>
+
+                <!-- Conditional Input Area -->
+                <div id="imageInputArea" class="space-y-4">
+                    <label class="block text-sm font-medium text-gray-700">2. Upload Image:</label>
+                    <input type="file" id="imageFile" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+                    <img id="imagePreview" class="hidden w-48 h-48 object-cover rounded-lg mx-auto border border-gray-200" alt="Image Preview">
+                </div>
+
+                <div id="textInputArea" class="hidden space-y-4">
+                    <label for="textDescription" class="block text-sm font-medium text-gray-700">2. Describe the result you want the prompt for:</label>
+                    <textarea id="textDescription" rows="5" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400" placeholder="e.g., Describe a futuristic SaaS landing page design, or a cinematic video about city life."></textarea>
+                </div>
+
+                <!-- Generate Button -->
+                <button id="generateButton" class="w-full flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition ease-in-out duration-150">
+                    <span id="buttonText">Generate Prompt</span>
+                    <div id="loadingIndicator" class="spinner w-5 h-5 border-4 border-t-transparent border-white rounded-full ml-3 hidden"></div>
+                </button>
+            </div>
+
+            <!-- Output Area -->
+            <div class="mt-8 pt-6 border-t border-gray-200">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Generated Prompt:</h2>
+                <div id="promptOutput" class="bg-gray-50 p-4 rounded-lg min-h-[150px] border border-gray-200 whitespace-pre-wrap text-sm text-gray-800">
+                    Your highly detailed, actionable prompt will appear here.
+                </div>
+
+                <!-- Copy Button -->
+                <button id="copyButton" class="mt-4 px-4 py-2 text-sm font-medium rounded-lg text-blue-700 bg-blue-100 hover:bg-blue-200 disabled:opacity-50 transition ease-in-out duration-150" disabled>
+                    Copy Prompt
+                </button>
+
+                <!-- Source Display -->
+                <div id="sourceOutput" class="mt-4 text-xs text-gray-500 hidden">
+                    <h3 class="font-medium mb-1">Sources:</h3>
+                    <ul id="sourceList" class="list-disc pl-5 space-y-1"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase Script and Application Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Set Firebase logging level to Debug (mandatory for Canvas environment)
+        setLogLevel('Debug');
+
+        // --- ENVIRONMENT & FIREBASE SETUP ---
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId;
+
+        /**
+         * Initializes Firebase and authenticates the user.
+         */
+        async function initializeAndAuthenticate() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase configuration is missing.");
+                    // Fallback to minimal setup if config is missing
+                    return;
+                }
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Authenticate
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("Authenticated with UID:", userId);
+                    } else {
+                        // Sign in if no user is present
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase or signing in:", error);
+            }
+        }
+
+        initializeAndAuthenticate();
+        // --- END FIREBASE SETUP ---
+
+        // --- UI ELEMENTS ---
+        const inputTypeSelect = document.getElementById('inputType');
+        const imageInputArea = document.getElementById('imageInputArea');
+        const textInputArea = document.getElementById('textInputArea');
+        const imageFile = document.getElementById('imageFile');
+        const imagePreview = document.getElementById('imagePreview');
+        const textDescription = document.getElementById('textDescription');
+        const generateButton = document.getElementById('generateButton');
+        const buttonText = document.getElementById('buttonText');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const promptOutput = document.getElementById('promptOutput');
+        const copyButton = document.getElementById('copyButton');
+        const sourceOutput = document.getElementById('sourceOutput');
+        const sourceList = document.getElementById('sourceList');
+
+        // --- CONSTANTS ---
+        const GEMINI_MODEL = 'gemini-2.5-flash-preview-09-2025';
+        const API_KEY = ""; // Canvas provides this during runtime
+
+        // --- UTILITY FUNCTIONS ---
+
+        /**
+         * Converts a File object to a Base64 string.
+         * @param {File} file - The file to convert.
+         * @returns {Promise<string>} - The base64 data string.
+         */
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        /**
+         * Implements exponential backoff for API calls.
+         * @param {Function} fn - The function to retry.
+         * @param {number} maxRetries - Maximum number of retries.
+         * @param {number} delay - Initial delay in milliseconds.
+         * @returns {Promise<any>}
+         */
+        async function fetchWithBackoff(fn, maxRetries = 5, delay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    return await fn();
+                } catch (error) {
+                    if (i === maxRetries - 1) {
+                        throw error;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+                }
+            }
+        }
+
+        /**
+         * Calls the Gemini API to generate content.
+         * @param {Object} payload - The API payload.
+         * @returns {Promise<{text: string, sources: Array<{uri: string, title: string}>}>}
+         */
+        async function generateContent(payload) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${API_KEY}`;
+
+            const fn = async () => {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`API Error: ${response.status} ${errorData.error?.message || response.statusText}`);
+                }
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    let sources = [];
+
+                    const groundingMetadata = candidate.groundingMetadata;
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title);
+                    }
+                    return { text, sources };
+
+                } else {
+                    throw new Error("No generated content received from the API.");
+                }
+            };
+
+            return fetchWithBackoff(fn);
+        }
+
+        // --- APPLICATION LOGIC ---
+
+        /**
+         * Updates the UI based on the selected input type.
+         */
+        function handleInputTypeChange() {
+            if (inputTypeSelect.value === 'image') {
+                imageInputArea.classList.remove('hidden');
+                textInputArea.classList.add('hidden');
+            } else {
+                imageInputArea.classList.add('hidden');
+                textInputArea.classList.remove('hidden');
+            }
+            // Clear image preview when switching
+            imagePreview.classList.add('hidden');
+            imagePreview.src = '';
+            imageFile.value = '';
+            // Clear outputs
+            promptOutput.textContent = 'Your highly detailed, actionable prompt will appear here.';
+            copyButton.disabled = true;
+            sourceOutput.classList.add('hidden');
+        }
+
+        /**
+         * Handles image file selection and preview.
+         */
+        function handleImageFileChange(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                    imagePreview.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            } else {
+                imagePreview.classList.add('hidden');
+                imagePreview.src = '';
+            }
+        }
+
+        /**
+         * Main function to generate the prompt based on input type.
+         */
+        async function handleGeneratePrompt() {
+            // Reset UI state
+            promptOutput.textContent = '';
+            copyButton.disabled = true;
+            sourceOutput.classList.add('hidden');
+            sourceList.innerHTML = '';
+            generateButton.disabled = true;
+            buttonText.textContent = 'Generating...';
+            loadingIndicator.classList.remove('hidden');
+
+            const type = inputTypeSelect.value;
+            let payload = {};
+            let systemInstruction = "";
+            let userQuery = "";
+
+            try {
+                if (type === 'image') {
+                    const file = imageFile.files[0];
+                    if (!file) {
+                        throw new Error("Please upload an image file.");
+                    }
+                    const base64Data = await fileToBase64(file);
+
+                    systemInstruction = "You are an expert prompt engineer for generative AI models (like Midjourney, DALL-E, or Imagen). Your task is to analyze the provided image and generate the single best, most detailed text-to-image prompt that a human user could use to recreate this image. The prompt must include details about style, lighting, camera angle, texture, and subject matter. Do not include any conversational filler; only output the prompt itself.";
+                    userQuery = "Analyze this image and create the optimal text-to-image prompt to recreate it.";
+
+                    payload = {
+                        contents: [
+                            {
+                                role: "user",
+                                parts: [
+                                    { text: userQuery },
+                                    {
+                                        inlineData: {
+                                            mimeType: file.type,
+                                            data: base64Data
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        systemInstruction: { parts: [{ text: systemInstruction }] },
+                    };
+
+                } else if (type === 'text') {
+                    const description = textDescription.value.trim();
+                    if (!description) {
+                        throw new Error("Please provide a text description.");
+                    }
+
+                    systemInstruction = `You are a specialized creative director and prompt engineer. A user is describing a creative project (website, video, or design). Your job is to transform their general description into a highly structured, detailed, and actionable creative brief/prompt. The output should be formatted clearly for the specified medium. For example, for a website, include sections for *Layout*, *Aesthetics*, and *Functionality*. For a video, include sections for *Scene Breakdown*, *Tone*, and *Technical Specs*. Do not include any conversational filler; provide only the structured prompt.`;
+                    userQuery = `Generate a comprehensive creative prompt based on the following description: "${description}"`;
+
+                    payload = {
+                        contents: [{ parts: [{ text: userQuery }] }],
+                        tools: [{ "google_search": {} }], // Use grounding for text mode
+                        systemInstruction: { parts: [{ text: systemInstruction }] },
+                    };
+                }
+
+                const { text, sources } = await generateContent(payload);
+                promptOutput.textContent = text;
+                copyButton.disabled = false;
+
+                if (sources.length > 0) {
+                    sourceList.innerHTML = sources.map(s => `<li><a href="${s.uri}" target="_blank" class="text-blue-500 hover:underline">${s.title}</a></li>`).join('');
+                    sourceOutput.classList.remove('hidden');
+                } else {
+                    sourceOutput.classList.add('hidden');
+                }
+
+            } catch (error) {
+                console.error("Prompt Generation Failed:", error);
+                promptOutput.textContent = `Error: ${error.message}. Please check your input and try again.`;
+            } finally {
+                generateButton.disabled = false;
+                buttonText.textContent = 'Generate Prompt';
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Copies the generated prompt to the clipboard.
+         */
+        function copyPromptToClipboard() {
+            const promptText = promptOutput.textContent;
+            if (promptText && promptText !== 'Your highly detailed, actionable prompt will appear here.') {
+                // Use execCommand('copy') as navigator.clipboard.writeText may be restricted in iframes
+                const tempTextArea = document.createElement("textarea");
+                tempTextArea.value = promptText;
+                document.body.appendChild(tempTextArea);
+                tempTextArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempTextArea);
+
+                copyButton.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyButton.textContent = 'Copy Prompt';
+                }, 1500);
+            }
+        }
+
+        // --- EVENT LISTENERS ---
+        inputTypeSelect.addEventListener('change', handleInputTypeChange);
+        imageFile.addEventListener('change', handleImageFileChange);
+        generateButton.addEventListener('click', handleGeneratePrompt);
+        copyButton.addEventListener('click', copyPromptToClipboard);
+
+        // Initialize view
+        handleInputTypeChange();
+
+    </script>
+</body>
+</html>
