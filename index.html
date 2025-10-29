@@ -342,7 +342,7 @@
                         throw new Error("Please provide a text description.");
                     }
 
-                    systemInstruction = `You are a specialized creative director and prompt engineer. A user is describing a creative project (website, video, or design). Your job is to transform their general description into a highly structured, detailed, and actionable creative brief/prompt. The output should be formatted clearly for the specified medium. For example, for a website, include sections for *Layout*, *Aesthetics*, and *Functionality*. For a video, include sections for *Scene Breakdown*, *Tone*, and *Technical Specs*. Do not include any conversational filler; provide only the structured prompt.`;
+                    systemInstruction = `You are a specialized creative director and prompt engineer. A user is describing a creative project (website, video, or design). Your job is to transform their general description into a highly structured, detailed, and actionable creative brief/prompt. The output should be formatted clearly for the specified medium. For example, for a website, use clear section titles (like 'PROJECT OVERVIEW'). **DO NOT USE ANY MARKDOWN OR SPECIAL CHARACTERS LIKE ASTERISKS (**), POUND SIGNS (#), OR PIPE SYMBOLS (|).** Use line breaks for formatting. Provide only the structured, plain text prompt.`;
                     userQuery = `Generate a comprehensive creative prompt based on the following description: "${description}"`;
 
                     payload = {
@@ -406,6 +406,7 @@
     </script>
 </body>
 </html>
+
 
 
 
